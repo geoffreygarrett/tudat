@@ -7,26 +7,9 @@
  *    a copy of the license with this file. If not, please or visit:
  *    http://tudat.tudelft.nl/LICENSE.
  */
-#ifndef TUDAT_BASEOBSERVER_H
-#define TUDAT_BASEOBSERVER_H
+#ifndef TUDAT_FUNCTIONEVALUATIONS_H
+#define TUDAT_FUNCTIONEVALUATIONS_H
 
-#include <memory>
+class FunctionEvaluations {};
 
-#include "BasePattern.h"
-
-namespace tudat {
-
-namespace numerical_simulation {
-
-template <typename S>
-class BaseObserver : public IObserver<S> {
- public:
-  BaseObserver() = default;
-
-//  virtual void update(const S &state);
-};
-
-}  // namespace numerical_simulation
-}  // namespace tudat
-
-#endif  // TUDAT_BASEOBSERVER_H
+#endif  // TUDATBUNDLE_FUNCTIONEVALUATIONS_H

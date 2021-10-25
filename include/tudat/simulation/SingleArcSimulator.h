@@ -1,5 +1,3 @@
-//! get_docstring
-
 #ifndef TUDAT_SINGLEARCSIMULATOR_H
 #define TUDAT_SINGLEARCSIMULATOR_H
 
@@ -31,33 +29,38 @@ namespace numerical_simulation {
 using namespace propagators;
 using namespace numerical_integrators;
 using namespace simulation_setup;
+using namespace ephemerides;
 using namespace std::chrono;
 
-//! @get_docstring(SingleArcSimulator)
-template <typename StateScalarType = double, typename TimeType = double,
-          typename TimeStepType = double>
-class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
- public:
-  using BaseSimulator<StateScalarType, TimeType>::bodies_;
-  using BaseSimulator<StateScalarType, TimeType>::clearNumericalSolutions_;
-  using BaseSimulator<StateScalarType, TimeType>::setIntegratedResult_;
+/// @tparam F the state floating-point type (e.g. float, double).
+/// @tparam T the domain type being integrated over (e.g. time).
+/// @tparam H the domain step-size type.
+template <typename F = double, typename T = double, typename H = double>
+struct SingleArcState : public SimulatorState<F, T> {
 
-  using StateType = Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1>;
-  using IntegratorType =
-      std::shared_ptr<numerical_integrators::NumericalIntegrator<
-          TimeType, StateType, StateType, TimeStepType>>;
-  using StopPropagationFunctionType =
-      std::function<bool(const double, const double)>;
+};
+
+/// @tparam F the state floating-point type (e.g. float, double).
+/// @tparam T the domain type being integrated over (e.g. time).
+/// @tparam H the domain step-size type.
+template <typename F = double, typename T = double, typename H = double>
+class SingleArcSimulator : public BaseSimulator<F, T> {
+ public:
+  using BaseSimulator<F, T>::bodies_;
+  using BaseSimulator<F, T>::clearNumericalSolutions_;
+  using BaseSimulator<F, T>::setIntegratedResult_;
+
+  // propagated bodies kinematic state.
+  using S = Eigen::Matrix<F, Eigen::Dynamic, 1>;               // State.
+  using I = std::shared_ptr<NumericalIntegrator<T, S, S, H>>;  // Integrator.
+  using O = std::function<bool(const double, const double)>;   // O for Omega.
 
   //! @get_docstring(SingleArcSimulator.ctor, 0)
   SingleArcSimulator(
-      const simulation_setup::SystemOfBodies &bodies,
-      const std::shared_ptr<numerical_integrators::IntegratorSettings<TimeType>>
-          integratorSettings,
-      const std::shared_ptr<PropagatorSettings<StateScalarType>>
-          propagatorSettings,
-      const std::vector<
-          std::shared_ptr<SingleStateTypeDerivative<StateScalarType, TimeType>>>
+      const SystemOfBodies &bodies,
+      const std::shared_ptr<IntegratorSettings<T>> integratorSettings,
+      const std::shared_ptr<PropagatorSettings<F>> propagatorSettings,
+      const std::vector<std::shared_ptr<SingleStateTypeDerivative<F, T>>>
           &stateDerivativeModels,
       const bool integrateToTermination = true,
       const bool clearNumericalSolutions = false,
@@ -65,12 +68,12 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
       const bool printNumberOfFunctionEvaluations = false,
       const steady_clock::time_point initialClockTime = steady_clock::now(),
       const bool printDependentVariableData = true)
-      : BaseSimulator<StateScalarType, TimeType>(
-            bodies, clearNumericalSolutions, setIntegratedResult),
+      : BaseSimulator<F, T>(bodies, clearNumericalSolutions,
+                            setIntegratedResult),
         integratorSettings_(integratorSettings),
-        propagatorSettings_(std::dynamic_pointer_cast<
-                            SingleArcPropagatorSettings<StateScalarType>>(
-            propagatorSettings)),
+        propagatorSettings_(
+            std::dynamic_pointer_cast<SingleArcPropagatorSettings<F>>(
+                propagatorSettings)),
         initialPropagationTime_(integratorSettings_->initialTime_),
         printNumberOfFunctionEvaluations_(printNumberOfFunctionEvaluations),
         initialClockTime_(initialClockTime),
@@ -81,8 +84,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
     if (propagatorSettings == nullptr) {
       throw std::runtime_error(
           "Error in dynamics simulator, propagator settings not defined.");
-    } else if (std::dynamic_pointer_cast<
-                   SingleArcPropagatorSettings<StateScalarType>>(
+    } else if (std::dynamic_pointer_cast<SingleArcPropagatorSettings<F>>(
                    propagatorSettings) == nullptr) {
       throw std::runtime_error(
           "Error in dynamics simulator, input must be single-arc.");
@@ -95,38 +97,33 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
 
     if (setIntegratedResult_) {
       frameManager_ = createFrameManager(bodies.getMap());
-      integratedStateProcessors_ =
-          createIntegratedStateProcessors<TimeType, StateScalarType>(
-              propagatorSettings_, bodies_, frameManager_);
+      integratedStateProcessors_ = createIntegratedStateProcessors<T, F>(
+          propagatorSettings_, bodies_, frameManager_);
     }
 
     try {
-      environmentUpdater_ =
-          createEnvironmentUpdaterForDynamicalEquations<StateScalarType,
-                                                        TimeType>(
-              propagatorSettings_, bodies_);
+      environmentUpdater_ = createEnvironmentUpdaterForDynamicalEquations<F, T>(
+          propagatorSettings_, bodies_);
     } catch (const std::runtime_error &error) {
       throw std::runtime_error("Error when creating environment updater: " +
                                std::string(error.what()));
     }
 
     if (stateDerivativeModels.size() == 0) {
-      dynamicsStateDerivative_ = std::make_shared<
-          DynamicsStateDerivativeModel<TimeType, StateScalarType>>(
-          createStateDerivativeModels<StateScalarType, TimeType>(
-              propagatorSettings_, bodies_, initialPropagationTime_),
-          std::bind(
-              &EnvironmentUpdater<StateScalarType, TimeType>::updateEnvironment,
-              environmentUpdater_, std::placeholders::_1, std::placeholders::_2,
-              std::placeholders::_3));
+      dynamicsStateDerivative_ =
+          std::make_shared<DynamicsStateDerivativeModel<T, F>>(
+              createStateDerivativeModels<F, T>(propagatorSettings_, bodies_,
+                                                initialPropagationTime_),
+              std::bind(&EnvironmentUpdater<F, T>::updateEnvironment,
+                        environmentUpdater_, std::placeholders::_1,
+                        std::placeholders::_2, std::placeholders::_3));
     } else {
-      dynamicsStateDerivative_ = std::make_shared<
-          DynamicsStateDerivativeModel<TimeType, StateScalarType>>(
-          stateDerivativeModels,
-          std::bind(
-              &EnvironmentUpdater<StateScalarType, TimeType>::updateEnvironment,
-              environmentUpdater_, std::placeholders::_1, std::placeholders::_2,
-              std::placeholders::_3));
+      dynamicsStateDerivative_ =
+          std::make_shared<DynamicsStateDerivativeModel<T, F>>(
+              stateDerivativeModels,
+              std::bind(&EnvironmentUpdater<F, T>::updateEnvironment,
+                        environmentUpdater_, std::placeholders::_1,
+                        std::placeholders::_2, std::placeholders::_3));
     }
 
     propagationTerminationCondition_ = createPropagationTerminationConditions(
@@ -136,10 +133,9 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
 
     if (propagatorSettings_->getDependentVariablesToSave() != nullptr) {
       std::pair<std::function<Eigen::VectorXd()>, std::map<int, std::string>>
-          dependentVariableData =
-              createDependentVariableListFunction<TimeType, StateScalarType>(
-                  propagatorSettings_->getDependentVariablesToSave(), bodies_,
-                  dynamicsStateDerivative_->getStateDerivativeModels());
+          dependentVariableData = createDependentVariableListFunction<T, F>(
+              propagatorSettings_->getDependentVariablesToSave(), bodies_,
+              dynamicsStateDerivative_->getStateDerivativeModels());
       dependentVariablesFunctions_ = dependentVariableData.first;
       dependentVariableIds_ = dependentVariableData.second;
 
@@ -154,19 +150,16 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
     }
 
     stateDerivativeFunction_ = std::bind(
-        &DynamicsStateDerivativeModel<TimeType,
-                                      StateScalarType>::computeStateDerivative,
+        &DynamicsStateDerivativeModel<T, F>::computeStateDerivative,
         dynamicsStateDerivative_, std::placeholders::_1, std::placeholders::_2);
 
     doubleStateDerivativeFunction_ = std::bind(
-        &DynamicsStateDerivativeModel<
-            TimeType, StateScalarType>::computeStateDoubleDerivative,
+        &DynamicsStateDerivativeModel<T, F>::computeStateDoubleDerivative,
         dynamicsStateDerivative_, std::placeholders::_1, std::placeholders::_2);
 
-    statePostProcessingFunction_ = std::bind(
-        &DynamicsStateDerivativeModel<TimeType,
-                                      StateScalarType>::postProcessState,
-        dynamicsStateDerivative_, std::placeholders::_1);
+    statePostProcessingFunction_ =
+        std::bind(&DynamicsStateDerivativeModel<T, F>::postProcessState,
+                  dynamicsStateDerivative_, std::placeholders::_1);
 
     stopPropagationFunction_ =
         std::bind(&PropagationTerminationCondition::checkStopCondition,
@@ -182,18 +175,16 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
 
   SingleArcSimulator(
       const simulation_setup::SystemOfBodies &bodies,
-      const std::shared_ptr<numerical_integrators::IntegratorSettings<TimeType>>
+      const std::shared_ptr<IntegratorSettings<T>>
           integratorSettings,
-      const std::shared_ptr<PropagatorSettings<StateScalarType>>
-          propagatorSettings,
+      const std::shared_ptr<PropagatorSettings<F>> propagatorSettings,
       const bool integrateToTermination = true,
       const bool clearNumericalSolutions = false,
       const bool setIntegratedResult = false,
       const bool printDependentVariableData = true)
       : SingleArcSimulator(
             bodies, integratorSettings, propagatorSettings,
-            std::vector<std::shared_ptr<
-                SingleStateTypeDerivative<StateScalarType, TimeType>>>(),
+            std::vector<std::shared_ptr<SingleStateTypeDerivative<F, T>>>(),
             integrateToTermination, clearNumericalSolutions,
             setIntegratedResult, printDependentVariableData) {}
 
@@ -224,7 +215,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
     //                        propagatorSettings_->getInitialStates(),
     //                        this->initialPropagationTime_ );
 
-    integrator_ = createIntegrator<TimeType, StateType, TimeStepType>(
+    integrator_ = createIntegrator<T, S, H>(
         stateDerivativeFunction_, propagatorSettings_->getInitialStates(),
         integratorSettings_);
 
@@ -232,14 +223,12 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
       integrator_->setPropagationTerminationFunction(stopPropagationFunction_);
     }
 
-    integrationInterface_ =
-        std::make_shared<IntegrationInterface<StateScalarType, StateType,
-                                              TimeType, TimeStepType>>(
-            integrator_, integratorSettings_->initialTimeStep_,
-            propagationTerminationCondition_, dependentVariablesFunctions_,
-            equationsOfMotionNumericalSolutionRaw_, dependentVariableHistory_,
-            cumulativeComputationTimeHistory_, statePostProcessingFunction_,
-            integratorSettings_->saveFrequency_);
+    integrationInterface_ = std::make_shared<IntegrationInterface<F, S, T, H>>(
+        integrator_, integratorSettings_->initialTimeStep_,
+        propagationTerminationCondition_, dependentVariablesFunctions_,
+        equationsOfMotionNumericalSolutionRaw_, dependentVariableHistory_,
+        cumulativeComputationTimeHistory_, statePostProcessingFunction_,
+        integratorSettings_->saveFrequency_);
   }
 
   bool isTerminal() { return integrationInterface_->isTerminal(); }
@@ -247,7 +236,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
   void integrateToTermination() {
     reset();
     propagationTerminationReason_ =
-        EquationIntegrationInterface<StateType, TimeType>::integrateEquations(
+        EquationIntegrationInterface<S, T>::integrateEquations(
             stateDerivativeFunction_, equationsOfMotionNumericalSolutionRaw_,
             dynamicsStateDerivative_->convertFromOutputSolution(
                 propagatorSettings_->getInitialStates(),
@@ -285,7 +274,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
   [[deprecated]] void integrateEquationsOfMotion() { integrateToTermination(); }
 
   //!
-  const std::map<TimeType, StateType> &getEquationsOfMotionNumericalSolution() {
+  const std::map<T, S> &getEquationsOfMotionNumericalSolution() {
     // Convert numerical solution to conventional state
     dynamicsStateDerivative_->convertNumericalStateSolutionsToOutputSolutions(
         equationsOfMotionNumericalSolution_,
@@ -294,8 +283,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
   }
 
   //!
-  const std::map<TimeType, StateType>
-      &getEquationsOfMotionNumericalSolutionRaw() {
+  const std::map<T, S> &getEquationsOfMotionNumericalSolutionRaw() {
     return equationsOfMotionNumericalSolutionRaw_;
   }
 
@@ -306,7 +294,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * during numerical propagation. \return Map of dependent variable history
    * that was saved during numerical propagation.
    */
-  const std::map<TimeType, Eigen::VectorXd> &getDependentVariableHistory() {
+  const std::map<T, Eigen::VectorXd> &getDependentVariableHistory() {
     return dependentVariableHistory_;
   }
 
@@ -317,7 +305,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * saved during numerical propagation. \return Map of cumulative computation
    * time history that was saved during numerical propagation.
    */
-  std::map<TimeType, double> getCumulativeComputationTimeHistory() {
+  std::map<T, double> getCumulativeComputationTimeHistory() {
     return cumulativeComputationTimeHistory_;
   }
 
@@ -328,7 +316,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * that was saved during numerical propagation. \return Map of cumulative
    * number of function evaluations that was saved during numerical propagation.
    */
-  std::map<TimeType, unsigned int> getCumulativeNumberOfFunctionEvaluations() {
+  std::map<T, unsigned int> getCumulativeNumberOfFunctionEvaluations() {
     return cumulativeNumberOfFunctionEvaluations_;
   }
 
@@ -339,11 +327,8 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * bodies (base class interface). \return Vector is size 1, with entry: map of
    * state history of numerically integrated bodies.
    */
-  std::vector<
-      std::map<TimeType, Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1>>>
-  getEquationsOfMotionNumericalSolutionBase() {
-    return std::vector<
-        std::map<TimeType, Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1>>>(
+  std::vector<std::map<T, S>> getEquationsOfMotionNumericalSolutionBase() {
+    return std::vector<std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>>(
         {getEquationsOfMotionNumericalSolution()});
   }
 
@@ -355,9 +340,9 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * 1, with entry: map of dependent variable history that was saved during
    * numerical propagation.
    */
-  std::vector<std::map<TimeType, Eigen::VectorXd>>
+  std::vector<std::map<T, Eigen::VectorXd>>
   getDependentVariableNumericalSolutionBase() {
-    return std::vector<std::map<TimeType, Eigen::VectorXd>>(
+    return std::vector<std::map<T, Eigen::VectorXd>>(
         {getDependentVariableHistory()});
   }
 
@@ -369,9 +354,8 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * is size 1, with entry: map of cumulative computation time history that was
    * saved during numerical propagation.
    */
-  std::vector<std::map<TimeType, double>>
-  getCumulativeComputationTimeHistoryBase() {
-    return std::vector<std::map<TimeType, double>>(
+  std::vector<std::map<T, double>> getCumulativeComputationTimeHistoryBase() {
+    return std::vector<std::map<T, double>>(
         {getCumulativeComputationTimeHistory()});
   }
 
@@ -386,10 +370,9 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * Externally generated dependent variable history.
    */
   void manuallySetAndProcessRawNumericalEquationsOfMotionSolution(
-      const std::map<TimeType,
-                     Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1>>
+      const std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>
           &equationsOfMotionNumericalSolution,
-      const std::map<TimeType, Eigen::VectorXd> &dependentVariableHistory,
+      const std::map<T, Eigen::VectorXd> &dependentVariableHistory,
       const bool processSolution = true) {
     equationsOfMotionNumericalSolution_ = equationsOfMotionNumericalSolution;
     if (processSolution) {
@@ -404,7 +387,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * Function to get the settings for the numerical integrator.
    * \return The settings for the numerical integrator.
    */
-  std::shared_ptr<numerical_integrators::IntegratorSettings<TimeType>>
+  std::shared_ptr<numerical_integrators::IntegratorSettings<T>>
   getIntegratorSettings() {
     return integratorSettings_;
   }
@@ -416,9 +399,8 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * function evaluation. \return Function that performs a single state
    * derivative function evaluation.
    */
-  std::function<Eigen::Matrix<StateScalarType, Eigen::Dynamic, Eigen::Dynamic>(
-      const TimeType,
-      const Eigen::Matrix<StateScalarType, Eigen::Dynamic, Eigen::Dynamic> &)>
+  std::function<Eigen::Matrix<F, Eigen::Dynamic, Eigen::Dynamic>(
+      const T, const Eigen::Matrix<F, Eigen::Dynamic, Eigen::Dynamic> &)>
   getStateDerivativeFunction() {
     return stateDerivativeFunction_;
   }
@@ -443,7 +425,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * Function to get the settings for the propagator.
    * \return The settings for the propagator.
    */
-  std::shared_ptr<SingleArcPropagatorSettings<StateScalarType>>
+  std::shared_ptr<SingleArcPropagatorSettings<F>>
 
   getPropagatorSettings() {
     return propagatorSettings_;
@@ -455,7 +437,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * on the current state and time. \return Object responsible for updating the
    * environment based on the current state and time.
    */
-  std::shared_ptr<EnvironmentUpdater<StateScalarType, TimeType>>
+  std::shared_ptr<EnvironmentUpdater<F, T>>
 
   getEnvironmentUpdater() {
     return environmentUpdater_;
@@ -467,7 +449,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * state derivative from single function call \return Object that updates
    * current environment and returns state derivative from single function call
    */
-  std::shared_ptr<DynamicsStateDerivativeModel<TimeType, StateScalarType>>
+  std::shared_ptr<DynamicsStateDerivativeModel<T, F>>
 
   getDynamicsStateDerivative() {
     return dynamicsStateDerivative_;
@@ -494,8 +476,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * solution by updating the environment
    */
   std::map<IntegratedStateType,
-           std::vector<std::shared_ptr<
-               IntegratedStateProcessor<TimeType, StateScalarType>>>>
+           std::vector<std::shared_ptr<IntegratedStateProcessor<T, F>>>>
 
   getIntegratedStateProcessors() {
     return integratedStateProcessors_;
@@ -576,19 +557,16 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
   }
 
  protected:
-  StopPropagationFunctionType stopPropagationFunction_;
+  O stopPropagationFunction_;
 
-  std::shared_ptr<
-      IntegrationInterface<StateScalarType, StateType, TimeType, TimeStepType>>
-      integrationInterface_;
+  std::shared_ptr<IntegrationInterface<F, S, T, H>> integrationInterface_;
 
-  IntegratorType integrator_;
+  I integrator_;
 
   //! List of object (per dynamics type) that process the integrated numerical
   //! solution by updating the environment
   std::map<IntegratedStateType,
-           std::vector<std::shared_ptr<
-               IntegratedStateProcessor<TimeType, StateScalarType>>>>
+           std::vector<std::shared_ptr<IntegratedStateProcessor<T, F>>>>
       integratedStateProcessors_;
 
   //! Object responsible for updating the environment based on the current state
@@ -598,25 +576,22 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * and time. Calling the updateEnvironment function automatically updates all
    * dependent variables that are needed to calulate the state derivative.
    */
-  std::shared_ptr<EnvironmentUpdater<StateScalarType, TimeType>>
-      environmentUpdater_;
+  std::shared_ptr<EnvironmentUpdater<F, T>> environmentUpdater_;
 
   //! Interface object that updates current environment and returns state
   //! derivative from single function call.
-  std::shared_ptr<DynamicsStateDerivativeModel<TimeType, StateScalarType>>
-      dynamicsStateDerivative_;
+  std::shared_ptr<DynamicsStateDerivativeModel<T, F>> dynamicsStateDerivative_;
 
   //! Function that performs a single state derivative function evaluation.
   /*!
    *  Function that performs a single state derivative function evaluation, will
-   * typically be set to DynamicsStateDerivativeModel< TimeType, StateScalarType
+   * typically be set to DynamicsStateDerivativeModel< T, F
    * >::computeStateDerivative function. Calling this function will first update
    * the environment (using environmentUpdater_) and then calculate the full
    * system state derivative.
    */
-  std::function<Eigen::Matrix<StateScalarType, Eigen::Dynamic, Eigen::Dynamic>(
-      const TimeType,
-      const Eigen::Matrix<StateScalarType, Eigen::Dynamic, Eigen::Dynamic> &)>
+  std::function<Eigen::Matrix<F, Eigen::Dynamic, Eigen::Dynamic>(
+      const T, const Eigen::Matrix<F, Eigen::Dynamic, Eigen::Dynamic> &)>
       stateDerivativeFunction_;
 
   //! Function that performs a single state derivative function evaluation with
@@ -631,12 +606,11 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
       doubleStateDerivativeFunction_;
 
   //! Settings for numerical integrator.
-  std::shared_ptr<numerical_integrators::IntegratorSettings<TimeType>>
+  std::shared_ptr<numerical_integrators::IntegratorSettings<T>>
       integratorSettings_;
 
   //! Settings for propagator.
-  std::shared_ptr<SingleArcPropagatorSettings<StateScalarType>>
-      propagatorSettings_;
+  std::shared_ptr<SingleArcPropagatorSettings<F>> propagatorSettings_;
 
   //! Object defining when the propagation is to be terminated.
   std::shared_ptr<PropagationTerminationCondition>
@@ -646,8 +620,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
   std::function<Eigen::VectorXd()> dependentVariablesFunctions_;
 
   //! Function to post-process state (during numerical propagation)
-  std::function<void(Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1> &)>
-      statePostProcessingFunction_;
+  std::function<void(S &)> statePostProcessingFunction_;
 
   //! Map listing starting entry of dependent variables in output vector, along
   //! with associated ID.
@@ -655,7 +628,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
 
   //! Object for retrieving ephemerides for transformation of reference frame
   //! (origins)
-  std::shared_ptr<ephemerides::ReferenceFrameManager> frameManager_;
+  std::shared_ptr<ReferenceFrameManager> frameManager_;
 
   //! Map of state history of numerically integrated bodies.
   /*!
@@ -666,7 +639,7 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * defined by propagatorSettings_). NOTE: this map is empty if
    * clearNumericalSolutions_ is set to true.
    */
-  std::map<TimeType, Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1>>
+  std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>
       equationsOfMotionNumericalSolution_;
 
   //! Map of state history of numerically integrated bodies.
@@ -677,20 +650,20 @@ class SingleArcSimulator : public BaseSimulator<StateScalarType, TimeType> {
    * (order defined by propagatorSettings_). NOTE: this map is empty if
    * clearNumericalSolutions_ is set to true.
    */
-  std::map<TimeType, Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1>>
+  std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>
       equationsOfMotionNumericalSolutionRaw_;
 
   //! Map of dependent variable history that was saved during numerical
   //! propagation.
-  std::map<TimeType, Eigen::VectorXd> dependentVariableHistory_;
+  std::map<T, Eigen::VectorXd> dependentVariableHistory_;
 
   //! Map of cumulative computation time history that was saved during numerical
   //! propagation.
-  std::map<TimeType, double> cumulativeComputationTimeHistory_;
+  std::map<T, double> cumulativeComputationTimeHistory_;
 
   //! Map of cumulative number of function evaluations that was saved during
   //! numerical propagation.
-  std::map<TimeType, unsigned int> cumulativeNumberOfFunctionEvaluations_;
+  std::map<T, unsigned int> cumulativeNumberOfFunctionEvaluations_;
 
   //! Initial time of propagation
   double initialPropagationTime_;

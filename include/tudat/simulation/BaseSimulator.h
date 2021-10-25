@@ -12,6 +12,7 @@
 #define TUDAT_BASESIMULATOR_H
 
 #include <tudat/simulation/helpers.h>
+#include <tudat/simulation/observer/BaseSubject.h>
 
 #include <boost/make_shared.hpp>
 #include <chrono>
@@ -38,20 +39,30 @@ namespace numerical_simulation {
 using namespace propagators;
 using namespace simulation_setup;
 
-//! @get_docstring(BaseSimulator)
-template <typename StateScalarType = double, typename TimeType = double,
-          typename std::enable_if<
-              is_state_scalar_and_time_type<StateScalarType, TimeType>::value,
-              int>::type = 0>
-class BaseSimulator : public std::enable_shared_from_this<
-                          BaseSimulator<StateScalarType, TimeType>> {
+/// @tparam F the state floating-point type (e.g. float, double).
+/// @tparam T the domain type being integrated over (e.g. time).
+/// @tparam H the domain step-size type.
+template <typename F = double, typename T = double>
+struct SimulatorState {
+  using S = Eigen::Matrix<F, Eigen::Dynamic, 1>;
+
+  bool terminal;  // has the simulation reached a terminal state.
+  T t;            // current domain value of the simulation (e.g. time).
+  H h;            // current (next) step size.
+  S s;            // state of propagated bodies.
+};
+
+/// @tparam F the state floating-point type (e.g. float, double).
+/// @tparam T the domain type being integrated over (e.g. time).
+template <typename F = double, typename T = double,
+          typename std::enable_if<is_state_scalar_and_time_type<F, T>::value,
+                                  int>::type = 0>
+class BaseSimulator : BaseSubject<SimulatorState<F, T>> {
  public:
-  using InitialGlobalStateType =
-      Eigen::Matrix<StateScalarType, Eigen::Dynamic, Eigen::Dynamic>;
-  using NumericalSolutionBaseType = std::vector<
-      std::map<TimeType, Eigen::Matrix<StateScalarType, Eigen::Dynamic, 1>>>;
+  using NumericalSolutionBaseType =
+      std::vector<std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>>;
   using DependentNumericalSolutionBaseType =
-      std::vector<std::map<TimeType, Eigen::VectorXd>>;
+      std::vector<std::map<T, Eigen::VectorXd>>;
 
   //! @get_docstring(BaseSimulator.ctor)
   explicit BaseSimulator(const SystemOfBodies &bodies,
@@ -63,6 +74,12 @@ class BaseSimulator : public std::enable_shared_from_this<
 
   //! @get_docstring(BaseSimulator.destructor)
   virtual ~BaseSimulator() = default;
+
+  void setState(SimulatorState<F, T> &state) override {
+    simulatorState_ = state;
+  };
+
+  SimulatorState<F, T> getState() override { return simulatorState_; };
 
   //  virtual std::shared_ptr<IntegrationInterface> getIntegrationInterface();
 
@@ -91,7 +108,7 @@ class BaseSimulator : public std::enable_shared_from_this<
   getDependentVariableNumericalSolutionBase() = 0;
 
   //! @get_docstring(BaseSimulator.getCumulativeComputationTimeHistoryBase)
-  [[deprecated]] virtual std::vector<std::map<TimeType, double>>
+  [[deprecated]] virtual std::vector<std::map<T, double>>
   getCumulativeComputationTimeHistoryBase() = 0;
 
   //! @get_docstring(BaseSimulator.getSystemOfBodies)
@@ -121,10 +138,7 @@ class BaseSimulator : public std::enable_shared_from_this<
   //! @get_docstring(BaseSimulator.setIntegratedResult_)
   bool setIntegratedResult_;
 
-  //  template <typename Derived>
-  //  std::shared_ptr<Derived> shared_from_base() {
-  //    return std::static_pointer_cast<Derived>(shared_from_this());
-  //  }
+  SimulatorState<F, T> simulatorState_;
 };
 
 }  // namespace numerical_simulation

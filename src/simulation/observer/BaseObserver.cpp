@@ -2,7 +2,7 @@
 // Created by ggarr on 23/10/2021.
 //
 
-#include "tudat/simulation/BaseObserver.h"
+#include <tudat/simulation/observer/BaseObserver.h>
 
 namespace tudat {
 
