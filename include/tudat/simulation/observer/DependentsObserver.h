@@ -7,14 +7,15 @@
  *    a copy of the license with this file. If not, please or visit:
  *    http://tudat.tudelft.nl/LICENSE.
  */
-#ifndef TUDAT_COMPUTATIONEXPENSE_H
-#define TUDAT_COMPUTATIONEXPENSE_H
+#ifndef TUDAT_DEPENDENTSOBSERVER_H
+#define TUDAT_DEPENDENTSOBSERVER_H
 
 #include <tudat/simulation/DataFrame.h>
 #include <tudat/simulation/observer/BaseObserver.h>
 #include <tudat/simulation/observer/SimulatorState.h>
 
 #include <map>
+#include <memory>
 
 namespace tudat {
 
@@ -26,17 +27,24 @@ namespace numerical_simulation {
 ///
 template <typename F, typename T>
 
-class CPUTimeObserver : public BaseObserver<SimulatorState<F, T>> {
+class DependentsObserver : public BaseObserver<SimulatorState<F, T>> {
  public:
-  using SeriesType = std::shared_ptr<Series<T, double>>;
-  CPUTimeObserver(int saveFrequency = 1)
+  using DataFrame = std::shared_ptr<DataFrame<T, double>>;
+  using DependentsData =
+      std::pair<std::function<Eigen::VectorXd()>, std::map<int, std::string>>;
+
+  DependentsObserver(propagatorSettings, bodies, dynamicsStateDerivative,
+                     int saveFrequency = 1)
       : cumulativeHistory_(std::make_shared<SeriesType>({}, "cpu_time")),
+        dependentsData_(createDependentVariableListFunction<T, F>(
+            propagatorSettings_->getDependentVariablesToSave(), bodies_,
+            dynamicsStateDerivative_->getStateDerivativeModels())),
         saveFrequency_(saveFrequency),
         updateCount_(0){};
 
   //! @get_docstring(ComputationExpense.getCumulativeHistory)
   std::shared_ptr<Series<T, double>> getCumulativeHistory() {
-    return cumulativeHistory_;
+    return dependentsHistory_;
   };
 
   //! @get_docstring(ComputationExpense.update)
@@ -54,6 +62,8 @@ class CPUTimeObserver : public BaseObserver<SimulatorState<F, T>> {
   }
 
  private:
+  DependentsData dependentsData_;
+
   //! @get_docstring(ComputationExpense.cumulativeHistory_)
   SeriesType cumulativeHistory_;
 
@@ -68,4 +78,4 @@ class CPUTimeObserver : public BaseObserver<SimulatorState<F, T>> {
 
 }  // namespace tudat
 
-#endif  // TUDAT_COMPUTATIONEXPENSE_H
+#endif  // TUDAT_DEPENDENTSOBSERVER_H

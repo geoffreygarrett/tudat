@@ -23,6 +23,7 @@ class BaseObserver : public IObserver<S> {
  public:
   BaseObserver() = default;
 
+  virtual void reset();
 //  virtual void update(const S &state);
 };
 

@@ -1,5 +1,5 @@
 /*    Copyright (c) 2010-2019, Delft University of Technology
- *    All rigths reserved
+ *    All rights reserved
  *
  *    This file is part of the Tudat. Redistribution and use in source and
  *    binary forms, with or without modification, are permitted exclusively
@@ -13,6 +13,9 @@
 
 #include <tudat/simulation/helpers.h>
 #include <tudat/simulation/observer/BaseSubject.h>
+#include <tudat/simulation/observer/ComputationExpense.h>
+#include <tudat/simulation/observer/NumericalSolution.h>
+#include <tudat/simulation/observer/SimulatorState.h>
 
 #include <boost/make_shared.hpp>
 #include <chrono>
@@ -36,62 +39,111 @@ namespace tudat {
 
 namespace numerical_simulation {
 
-using namespace propagators;
-using namespace simulation_setup;
-
+///
 /// @tparam F the state floating-point type (e.g. float, double).
 /// @tparam T the domain type being integrated over (e.g. time).
-/// @tparam H the domain step-size type.
-template <typename F = double, typename T = double>
-struct SimulatorState {
-  using S = Eigen::Matrix<F, Eigen::Dynamic, 1>;
-
-  bool terminal;  // has the simulation reached a terminal state.
-  T t;            // current domain value of the simulation (e.g. time).
-  H h;            // current (next) step size.
-  S s;            // state of propagated bodies.
-};
-
-/// @tparam F the state floating-point type (e.g. float, double).
-/// @tparam T the domain type being integrated over (e.g. time).
+///
 template <typename F = double, typename T = double,
           typename std::enable_if<is_state_scalar_and_time_type<F, T>::value,
                                   int>::type = 0>
 class BaseSimulator : BaseSubject<SimulatorState<F, T>> {
  public:
-  using NumericalSolutionBaseType =
-      std::vector<std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>>;
-  using DependentNumericalSolutionBaseType =
-      std::vector<std::map<T, Eigen::VectorXd>>;
+  using BaseSubject<SimulatorState<F, T>>::attach;
+  using BaseSubject<SimulatorState<F, T>>::detach;
+  using BaseSubject<SimulatorState<F, T>>::notify;
+
+  using S = Eigen::Matrix<F, Eigen::Dynamic, 1>;
+
+  using SOL = std::vector<std::map<T, S>>;
+  using DEP = std::vector<std::map<T, S>>;
 
   //! @get_docstring(BaseSimulator.ctor)
   explicit BaseSimulator(const SystemOfBodies &bodies,
                          const bool clearNumericalSolutions = true,
-                         const bool setIntegratedResult = true)
+                         const bool setIntegratedResult = true,
+                         const int cpuTimeSaveFrequency = 1,
+                         const int solutionSaveFrequency = 1,
+                         const int funcEvalSaveFrequency = 1)
       : bodies_(bodies),
         clearNumericalSolutions_(clearNumericalSolutions),
-        setIntegratedResult_(setIntegratedResult) {}
-
-  //! @get_docstring(BaseSimulator.destructor)
-  virtual ~BaseSimulator() = default;
-
-  void setState(SimulatorState<F, T> &state) override {
-    simulatorState_ = state;
+        setIntegratedResult_(setIntegratedResult),
+  {
+    if (cpuTimeSaveFrequency) {
+      attach(std::make_shared<CPUTimeObserver<F, T>>(cpuTimeSaveFrequency));
+    }
+    if (solutionSaveFrequency) {
+      attach(std::make_shared<SolutionObserver<F, T>>(solutionSaveFrequency));
+    }
+    if (funcEvalSaveFrequency) {
+      attach(std::make_shared<FunctionEvalObserver<F, T>>(funEvalSaveFreq));
+    }
   };
 
-  SimulatorState<F, T> getState() override { return simulatorState_; };
+  //! default destructor
+  virtual ~BaseSimulator() = default;
+
+  ///
+  /// @return the cpu time observer
+  ///    This is a class that inherits from the BaseObserver class, and
+  ///    is updated when the simulation state changes.
+  ///
+  std::shared_ptr<CPUTimeObserver<F, T>> getCPUTimeObserver() {
+    return CPUTimeObserver_;
+  };
+
+  ///
+  /// @return the numerical solution observer
+  ///    This is a class that inherits from the BaseObserver class, and
+  ///    is updated when the simulation state changes.
+  ///
+  std::shared_ptr<SolutionObserver<F, T>> getSolutionObserver() {
+    return solutionObserver_;
+  };
+
+  ///
+  /// @return current state of the simulation
+  ///    This is an abstract inherited member function from the ISubject
+  ///    class, which facilitates the observer pattern for the current
+  ///    state of the simulation.
+  ///
+  /// @notes
+  ///     This is an alias for the inherited member function `getState`
+  ///     from BaseSubject. The technique used here is variadic template
+  ///     with perfect forwarding. The `getState` member function is
+  ///     renamed to avoid confusion with the use of the state in
+  ///     astrodynamics.
+  ///
+  template <typename... Ts>
+  auto getSimulatorState(Ts &&...ts) const
+      -> decltype(getState(std::forward<Ts>(ts)...)) {
+    return getState(std::forward<Ts>(ts)...);
+  }
+
+  ///
+  /// @return the dependent variables observer
+  ///    This is a class that inherits from the BaseObserver class, and
+  ///    is updated when the simulation state changes.
+  ///
+  //  std::shared_ptr<SolutionObserver<F, T>> getDependentsObserver() {
+  //    return dependentsObserver_;
+  //  };
+  //
+  //  ///
+  //  /// @return the numerical solution observer
+  //  ///    This is a class that inherits from the BaseObserver class, and
+  //  ///    is updated when the simulation state changes.
+  //  ///
+  //  std::shared_ptr<FunctionEvalObserver<F, T>> getFunctionEvalObserver() {
+  //    return functionEvalObserver_;
+  //  };
 
   //  virtual std::shared_ptr<IntegrationInterface> getIntegrationInterface();
 
-  //  virtual std::shared_ptr<DependentsObserver> getDependentsObserver();
-
-  //  virtual std::shared_ptr<ComputationExpense> getComputationTimeObserver();
-
   //  virtual std::shared_ptr<SolutionObserver> getSolutionObserver();
-  //
-  //  virtual std::shared_ptr<FunctionEvalObserver> getFunctionEvalObserver();
-  //
+
   //  virtual std::shared_ptr<TerminationObserver> getTerminationObserver();
+
+  /// LEGACY MEMBERS.
 
   //! @get_docstring(BaseSimulator.integrateEquationsOfMotion)
   [[deprecated]] virtual void integrateEquationsOfMotion() = 0;
@@ -100,12 +152,10 @@ class BaseSimulator : BaseSubject<SimulatorState<F, T>> {
   virtual bool integrationCompletedSuccessfully() const = 0;
 
   //! @get_docstring(BaseSimulator.getEquationsOfMotionNumericalSolutionBase)
-  virtual NumericalSolutionBaseType
-  getEquationsOfMotionNumericalSolutionBase() = 0;
+  virtual SOL getEquationsOfMotionNumericalSolutionBase() = 0;
 
   //! @get_docstring(BaseSimulator.getDependentVariableNumericalSolutionBase)
-  [[deprecated]] virtual DependentNumericalSolutionBaseType
-  getDependentVariableNumericalSolutionBase() = 0;
+  [[deprecated]] virtual SOL getDependentVariableNumericalSolutionBase() = 0;
 
   //! @get_docstring(BaseSimulator.getCumulativeComputationTimeHistoryBase)
   [[deprecated]] virtual std::vector<std::map<T, double>>
@@ -138,7 +188,32 @@ class BaseSimulator : BaseSubject<SimulatorState<F, T>> {
   //! @get_docstring(BaseSimulator.setIntegratedResult_)
   bool setIntegratedResult_;
 
-  SimulatorState<F, T> simulatorState_;
+  //! @get_docstring(BaseSimulator.CPUTimeObserver_)
+  std::shared_ptr<CPUTimeObserver<F, T>> CPUTimeObserver_;
+
+  //! @get_docstring(BaseSimulator.SolutionObserver_)
+  std::shared_ptr<SolutionObserver<F, T>> solutionObserver_;
+
+  ///
+  /// @param state current state of the simulation to be set
+  /// @notes
+  ///    This is an abstract inherited member function from the ISubject
+  ///    class, which facilitates the observer pattern for the current
+  ///    state of the simulation.
+  ///
+  void setState(SimulatorState<F, T> &state) override { simState_ = state; };
+
+  ///
+  /// @return current state of the simulation
+  ///    This is an abstract inherited member function from the ISubject
+  ///    class, which facilitates the observer pattern for the current
+  ///    state of the simulation.
+  ///
+  SimulatorState<F, T> getState() override { return simState_; };
+
+ private:
+  //! @get_docstring(BaseSimulator.simState_)
+  SimulatorState<F, T> simState_;
 };
 
 }  // namespace numerical_simulation

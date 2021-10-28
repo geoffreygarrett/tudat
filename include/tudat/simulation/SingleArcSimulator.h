@@ -1,3 +1,13 @@
+/*    Copyright (c) 2010-2019, Delft University of Technology
+ *    All rights reserved
+ *
+ *    This file is part of the Tudat. Redistribution and use in source and
+ *    binary forms, with or without modification, are permitted exclusively
+ *    under the terms of the Modified BSD license. You should have received
+ *    a copy of the license with this file. If not, please or visit:
+ *    http://tudat.tudelft.nl/LICENSE.
+ */
+
 #ifndef TUDAT_SINGLEARCSIMULATOR_H
 #define TUDAT_SINGLEARCSIMULATOR_H
 
@@ -36,9 +46,7 @@ using namespace std::chrono;
 /// @tparam T the domain type being integrated over (e.g. time).
 /// @tparam H the domain step-size type.
 template <typename F = double, typename T = double, typename H = double>
-struct SingleArcState : public SimulatorState<F, T> {
-
-};
+struct SingleArcState : public SimulatorState<F, T, H> {};
 
 /// @tparam F the state floating-point type (e.g. float, double).
 /// @tparam T the domain type being integrated over (e.g. time).
@@ -46,14 +54,45 @@ struct SingleArcState : public SimulatorState<F, T> {
 template <typename F = double, typename T = double, typename H = double>
 class SingleArcSimulator : public BaseSimulator<F, T> {
  public:
+  // inherited from BaseSimulator
   using BaseSimulator<F, T>::bodies_;
   using BaseSimulator<F, T>::clearNumericalSolutions_;
   using BaseSimulator<F, T>::setIntegratedResult_;
+
+  // inherited from BaseSimulator implementation of subject patter
+  using BaseSimulator<F, T>::simState_;
+  using BaseSimulator<F, T>::solutionObserver_;
+  using BaseSimulator<F, T>::dependentObserver_;
+  using BaseSimulator<F, T>::terminationObserver_;
+  using BaseSimulator<F, T>::CPUTimeObserver_;
+
+  // inherited from BaseSubject pattern.
+  using BaseSimulator<F, T>::setState;
+  using BaseSimulator<F, T>::getState;
+  using BaseSimulator<F, T>::attach;
+  using BaseSimulator<F, T>::detach;
 
   // propagated bodies kinematic state.
   using S = Eigen::Matrix<F, Eigen::Dynamic, 1>;               // State.
   using I = std::shared_ptr<NumericalIntegrator<T, S, S, H>>;  // Integrator.
   using O = std::function<bool(const double, const double)>;   // O for Omega.
+
+  SingleArcSimulator(
+      const SystemOfBodies &bodies,
+      const std::shared_ptr<IntegratorSettings<T>> integratorSettings,
+      const std::shared_ptr<PropagatorSettings<F>> propagatorSettings,
+      const int cpuTimeSaveFrequency = 1, const int solutionSaveFrequency = 1,
+      const int funcEvalSaveFrequency = 1)
+      : BaseSimulator<F, T>(bodies, clearNumericalSolutions,
+                            setIntegratedResult, cpuTimeSaveFrequency,
+                            solutionSaveFrequency, funcEvalSaveFrequency) {
+    if ((propagatorSettings->getDependentVariablesToSave() != nullptr) &
+        (dependentsSaveFrequency)) {
+      attach(std::make_shared<DependentsObserver<F, T>>(dependentsSaveFreq, ));
+    }
+  };
+
+  void setStateDerivativeModels();
 
   //! @get_docstring(SingleArcSimulator.ctor, 0)
   SingleArcSimulator(
@@ -174,9 +213,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   }
 
   SingleArcSimulator(
-      const simulation_setup::SystemOfBodies &bodies,
-      const std::shared_ptr<IntegratorSettings<T>>
-          integratorSettings,
+      const SystemOfBodies &bodies,
+      const std::shared_ptr<IntegratorSettings<T>> integratorSettings,
       const std::shared_ptr<PropagatorSettings<F>> propagatorSettings,
       const bool integrateToTermination = true,
       const bool clearNumericalSolutions = false,
@@ -268,7 +306,108 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
     }
   }
 
-  void integrateByStep(const int steps) { integrationInterface_->step(steps); }
+  void reset_simulation() {
+    // Set initial conditions for integration.
+    simState_.tCurrent = integrator_->getCurrentIndependentVariable();
+    simState_.tInitial = simState_.tCurrent;
+    simState_.stateNew = integrator_->getCurrentState();
+    simState_.stepSize = integratorSettings_->initialTimeStep_;
+
+    // If the dependent variable function exists, then the current state
+    // derivative requires updating at the current time prior to its
+    // evaluation.
+    if (!(dependentVariableFunction_ == nullptr)) {
+      integrator_->getStateDerivativeFunction()(simState_.tCurrent,
+                                                simState_.stateNew);
+      simState_.dependent = dependentVariableFunction_();
+    }
+
+    // Reset solution observer.
+    if (solutionObserver_ != nullptr) {
+      // The solution observer tracks the current propagated state
+      // solution.
+      solutionObserver_.reset();
+    }
+
+    // Reset dependent variable observer.
+    if (dependentsObserver_ != nullptr) {
+      // The dependent variable observer tracks the current dependent
+      // variables of the current propagated state solution.
+      dependentsObserver_.reset();
+    }
+
+    // Reset CPU time observer.
+    if (CPUTimeObserver_ != nullptr) {
+      solutionObserver_.reset();
+    }
+
+    // Reset termination observer.
+    if (terminationObserver_ != nullptr) {
+      terminationObserver_.reset();
+    }
+
+    // Iterates through all observers, notifying them about the current
+    // simulation state stored as `simState_`. They decide individually
+    // what to do and track according to the current state, and their
+    // relevant settings.
+    notify();
+  }
+
+  void perform_integration_step() {
+    if ((simState_.stateNew.allFinite() == true) &&
+        (!simState_.stateNew.hasNaN())) {
+      // Store previous time in the case of rollback.
+      simState_.tPrevious = simState_.tCurrent;
+
+      // Perform integration step.
+      simState_.stateNew =
+          integrator_->performIntegrationStep(simState_.stepSize);
+
+      if (statePostProcessingFunction_ != nullptr) {
+        statePostProcessingFunction_(simState_.stateNew);
+        integrator_->modifyCurrentState(simState_.stateNew, true);
+      }
+
+      // Check if the termination condition was reached during evaluation of
+      // integration sub-steps. If evaluation of the termination condition
+      // during integration sub-steps is disabled, this function returns
+      // always `false`. If the termination condition was reached, the last
+      // step could not be computed correctly because some of the integrator
+      // sub-steps were not computed. Thus, return immediately without
+      // saving the `newState`.
+      if (integrator_->getPropagationTerminationConditionReached()) {
+        propagationTerminationReason_ =
+            std::make_shared<PropagationTerminationDetails>(
+                termination_condition_reached);
+      } else {
+        // Update current domain/independent value respective step-size.
+        simState_.tCurrent = integrator_->getCurrentIndependentVariable();
+        simState_.stepSize = integrator_->getNextStepSize();
+
+        // Save integration result in map
+        saveIndex_++;
+        saveIndex_ = saveIndex_ % saveFrequency_;
+        if (saveIndex_ == 0) {
+          solutionHistory_[currentTime_] = newState_;
+
+          if (!(dependentVariableFunction_ == nullptr)) {
+            integrator_->getStateDerivativeFunction()(currentTime, newState_);
+            dependentHistory_[currentTime_] = dependentVariableFunction_();
+          }
+        }
+      }
+      else {
+      }
+    }
+  }
+  void integrateByStep(const int steps) {
+    for (int i = 0; i < steps; i++) {
+      simState_t_current = integrator_->getCurrentIndependentVariable();
+      t_initial = t_current;
+
+      integrationInterface_->step(steps);
+    }
+  }
 
   //! @get_docstring(SingleArcSimulator.integrateEquationsOfMotion)
   [[deprecated]] void integrateEquationsOfMotion() { integrateToTermination(); }
@@ -298,12 +437,12 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
     return dependentVariableHistory_;
   }
 
-  //! Function to return the map of cumulative computation time history that was
-  //! saved during numerical propagation.
+  //! Function to return the map of cumulative computation time history that
+  //! was saved during numerical propagation.
   /*!
-   * Function to return the map of cumulative computation time history that was
-   * saved during numerical propagation. \return Map of cumulative computation
-   * time history that was saved during numerical propagation.
+   * Function to return the map of cumulative computation time history that
+   * was saved during numerical propagation. \return Map of cumulative
+   * computation time history that was saved during numerical propagation.
    */
   std::map<T, double> getCumulativeComputationTimeHistory() {
     return cumulativeComputationTimeHistory_;
@@ -314,7 +453,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   /*!
    * Function to return the map of cumulative number of function evaluations
    * that was saved during numerical propagation. \return Map of cumulative
-   * number of function evaluations that was saved during numerical propagation.
+   * number of function evaluations that was saved during numerical
+   * propagation.
    */
   std::map<T, unsigned int> getCumulativeNumberOfFunctionEvaluations() {
     return cumulativeNumberOfFunctionEvaluations_;
@@ -324,8 +464,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   //! bodies (base class interface).
   /*!
    * Function to return the map of state history of numerically integrated
-   * bodies (base class interface). \return Vector is size 1, with entry: map of
-   * state history of numerically integrated bodies.
+   * bodies (base class interface). \return Vector is size 1, with entry: map
+   * of state history of numerically integrated bodies.
    */
   std::vector<std::map<T, S>> getEquationsOfMotionNumericalSolutionBase() {
     return std::vector<std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>>(
@@ -336,9 +476,9 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   //! during numerical propagation (base class interface)
   /*!
    * Function to return the map of dependent variable history that was saved
-   * during numerical propagation (base class interface) \return Vector is size
-   * 1, with entry: map of dependent variable history that was saved during
-   * numerical propagation.
+   * during numerical propagation (base class interface) \return Vector is
+   * size 1, with entry: map of dependent variable history that was saved
+   * during numerical propagation.
    */
   std::vector<std::map<T, Eigen::VectorXd>>
   getDependentVariableNumericalSolutionBase() {
@@ -346,13 +486,13 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
         {getDependentVariableHistory()});
   }
 
-  //! Function to return the map of cumulative computation time history that was
-  //! saved during numerical propagation.
+  //! Function to return the map of cumulative computation time history that
+  //! was saved during numerical propagation.
   /*!
-   * Function to return the map of cumulative computation time history that was
-   * saved during numerical propagation (base class interface). \return Vector
-   * is size 1, with entry: map of cumulative computation time history that was
-   * saved during numerical propagation.
+   * Function to return the map of cumulative computation time history that
+   * was saved during numerical propagation (base class interface). \return
+   * Vector is size 1, with entry: map of cumulative computation time history
+   * that was saved during numerical propagation.
    */
   std::vector<std::map<T, double>> getCumulativeComputationTimeHistoryBase() {
     return std::vector<std::map<T, double>>(
@@ -365,9 +505,9 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
    * Function to reset the environment from an externally generated state
    * history, the order of the entries in the state vectors are proscribed by
    * propagatorSettings \param equationsOfMotionNumericalSolution Externally
-   * generated state history. \param processSolution True if the new solution is
-   * to be immediately processed (default true). \param dependentVariableHistory
-   * Externally generated dependent variable history.
+   * generated state history. \param processSolution True if the new solution
+   * is to be immediately processed (default true). \param
+   * dependentVariableHistory Externally generated dependent variable history.
    */
   void manuallySetAndProcessRawNumericalEquationsOfMotionSolution(
       const std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>
@@ -434,8 +574,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   //! Function to get the object that updates the environment.
   /*!
    * Function to get the object responsible for updating the environment based
-   * on the current state and time. \return Object responsible for updating the
-   * environment based on the current state and time.
+   * on the current state and time. \return Object responsible for updating
+   * the environment based on the current state and time.
    */
   std::shared_ptr<EnvironmentUpdater<F, T>>
 
@@ -447,7 +587,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   /*!
    * Function to get the object that updates current environment and returns
    * state derivative from single function call \return Object that updates
-   * current environment and returns state derivative from single function call
+   * current environment and returns state derivative from single function
+   * call
    */
   std::shared_ptr<DynamicsStateDerivativeModel<T, F>>
 
@@ -471,8 +612,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   //! numerical solution by updating the environment
   /*!
    * Function to retrieve the List of object (per dynamics type) that process
-   * the integrated numerical solution by updating the environment \return List
-   * of object (per dynamics type) that process the integrated numerical
+   * the integrated numerical solution by updating the environment \return
+   * List of object (per dynamics type) that process the integrated numerical
    * solution by updating the environment
    */
   std::map<IntegratedStateType,
@@ -482,8 +623,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
     return integratedStateProcessors_;
   }
 
-  //! Function to retrieve the event that triggered the termination of the last
-  //! propagation
+  //! Function to retrieve the event that triggered the termination of the
+  //! last propagation
   /*!
    * Function to retrieve the event that triggered the termination of the last
    * propagation \return Event that triggered the termination of the last
@@ -497,8 +638,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   //! Get whether the integration was completed successfully.
   /*!
    * Get whether the integration was completed successfully.
-   * \return Whether the integration was completed successfully by reaching the
-   * termination condition.
+   * \return Whether the integration was completed successfully by reaching
+   * the termination condition.
    */
   virtual bool integrationCompletedSuccessfully() const {
     return (propagationTerminationReason_->getPropagationTerminationReason() ==
@@ -569,12 +710,13 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
            std::vector<std::shared_ptr<IntegratedStateProcessor<T, F>>>>
       integratedStateProcessors_;
 
-  //! Object responsible for updating the environment based on the current state
-  //! and time.
+  //! Object responsible for updating the environment based on the current
+  //! state and time.
   /*!
-   *  Object responsible for updating the environment based on the current state
-   * and time. Calling the updateEnvironment function automatically updates all
-   * dependent variables that are needed to calulate the state derivative.
+   *  Object responsible for updating the environment based on the current
+   * state and time. Calling the updateEnvironment function automatically
+   * updates all dependent variables that are needed to calulate the state
+   * derivative.
    */
   std::shared_ptr<EnvironmentUpdater<F, T>> environmentUpdater_;
 
@@ -584,21 +726,21 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
 
   //! Function that performs a single state derivative function evaluation.
   /*!
-   *  Function that performs a single state derivative function evaluation, will
-   * typically be set to DynamicsStateDerivativeModel< T, F
-   * >::computeStateDerivative function. Calling this function will first update
-   * the environment (using environmentUpdater_) and then calculate the full
-   * system state derivative.
+   *  Function that performs a single state derivative function evaluation,
+   * will typically be set to DynamicsStateDerivativeModel< T, F
+   * >::computeStateDerivative function. Calling this function will first
+   * update the environment (using environmentUpdater_) and then calculate the
+   * full system state derivative.
    */
   std::function<Eigen::Matrix<F, Eigen::Dynamic, Eigen::Dynamic>(
       const T, const Eigen::Matrix<F, Eigen::Dynamic, Eigen::Dynamic> &)>
       stateDerivativeFunction_;
 
-  //! Function that performs a single state derivative function evaluation with
-  //! double precision.
+  //! Function that performs a single state derivative function evaluation
+  //! with double precision.
   /*!
-   *  Function that performs a single state derivative function evaluation with
-   * double precision. \sa stateDerivativeFunction_
+   *  Function that performs a single state derivative function evaluation
+   * with double precision. \sa stateDerivativeFunction_
    */
   std::function<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>(
       const double,
@@ -622,8 +764,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   //! Function to post-process state (during numerical propagation)
   std::function<void(S &)> statePostProcessingFunction_;
 
-  //! Map listing starting entry of dependent variables in output vector, along
-  //! with associated ID.
+  //! Map listing starting entry of dependent variables in output vector,
+  //! along with associated ID.
   std::map<int, std::string> dependentVariableIds_;
 
   //! Object for retrieving ephemerides for transformation of reference frame
@@ -632,11 +774,11 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
 
   //! Map of state history of numerically integrated bodies.
   /*!
-   *  Map of state history of numerically integrated bodies, i.e. the result of
-   * the numerical integration, transformed into the 'conventional form' (\sa
-   * SingleStateTypeDerivative::convertToOutputSolution). Key of map denotes
-   * time, values are concatenated vectors of integrated body states (order
-   * defined by propagatorSettings_). NOTE: this map is empty if
+   *  Map of state history of numerically integrated bodies, i.e. the result
+   * of the numerical integration, transformed into the 'conventional form'
+   * (\sa SingleStateTypeDerivative::convertToOutputSolution). Key of map
+   * denotes time, values are concatenated vectors of integrated body states
+   * (order defined by propagatorSettings_). NOTE: this map is empty if
    * clearNumericalSolutions_ is set to true.
    */
   std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>
@@ -644,11 +786,11 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
 
   //! Map of state history of numerically integrated bodies.
   /*!
-   *  Map of state history of numerically integrated bodies, i.e. the result of
-   * the numerical integration, in the original propagation coordinates. Key of
-   * map denotes time, values are concatenated vectors of integrated body states
-   * (order defined by propagatorSettings_). NOTE: this map is empty if
-   * clearNumericalSolutions_ is set to true.
+   *  Map of state history of numerically integrated bodies, i.e. the result
+   * of the numerical integration, in the original propagation coordinates.
+   * Key of map denotes time, values are concatenated vectors of integrated
+   * body states (order defined by propagatorSettings_). NOTE: this map is
+   * empty if clearNumericalSolutions_ is set to true.
    */
   std::map<T, Eigen::Matrix<F, Eigen::Dynamic, 1>>
       equationsOfMotionNumericalSolutionRaw_;
@@ -657,8 +799,8 @@ class SingleArcSimulator : public BaseSimulator<F, T> {
   //! propagation.
   std::map<T, Eigen::VectorXd> dependentVariableHistory_;
 
-  //! Map of cumulative computation time history that was saved during numerical
-  //! propagation.
+  //! Map of cumulative computation time history that was saved during
+  //! numerical propagation.
   std::map<T, double> cumulativeComputationTimeHistory_;
 
   //! Map of cumulative number of function evaluations that was saved during

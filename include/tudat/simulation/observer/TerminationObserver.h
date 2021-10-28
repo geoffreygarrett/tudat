@@ -7,8 +7,9 @@
  *    a copy of the license with this file. If not, please or visit:
  *    http://tudat.tudelft.nl/LICENSE.
  */
-#ifndef TUDAT_COMPUTATIONEXPENSE_H
-#define TUDAT_COMPUTATIONEXPENSE_H
+
+#ifndef TUDAT_TERMINATIONOBSERVER_H
+#define TUDAT_TERMINATIONOBSERVER_H
 
 #include <tudat/simulation/DataFrame.h>
 #include <tudat/simulation/observer/BaseObserver.h>
@@ -26,10 +27,9 @@ namespace numerical_simulation {
 ///
 template <typename F, typename T>
 
-class CPUTimeObserver : public BaseObserver<SimulatorState<F, T>> {
+class TerminationObserver : public BaseObserver<SimulatorState<F, T>> {
  public:
-  using SeriesType = std::shared_ptr<Series<T, double>>;
-  CPUTimeObserver(int saveFrequency = 1)
+  TerminationObserver(int saveFrequency = 1)
       : cumulativeHistory_(std::make_shared<SeriesType>({}, "cpu_time")),
         saveFrequency_(saveFrequency),
         updateCount_(0){};
@@ -41,16 +41,14 @@ class CPUTimeObserver : public BaseObserver<SimulatorState<F, T>> {
 
   //! @get_docstring(ComputationExpense.update)
   void update(SimulatorState<F, T> state) override {
-    if ((updateCount_ % saveFrequency_) == 0) {
       cumulativeHistory_->append({state.t, state.cumulativeTime});
-    }
-    updateCount_++;
   }
 
   //! @get_docstring(ComputationExpense.reset)
   void reset() override {
-    cumulativeHistory_->clear();
-    updateCount_ = 0;
+    isTerminal_ = false;
+    terminationReason_ = std::make_shared<PropagationTerminationDetails>(
+        unknown_propagation_termination_reason);
   }
 
  private:
@@ -67,5 +65,4 @@ class CPUTimeObserver : public BaseObserver<SimulatorState<F, T>> {
 }  // namespace numerical_simulation
 
 }  // namespace tudat
-
-#endif  // TUDAT_COMPUTATIONEXPENSE_H
+#endif  // TUDAT_TERMINATIONOBSERVER_H
