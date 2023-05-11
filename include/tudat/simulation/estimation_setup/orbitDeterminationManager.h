@@ -34,51 +34,6 @@ namespace tudat
 namespace simulation_setup
 {
 
-////! Function to create a single vector of observation weights from weights sorted by link ends/observation type
-///*!
-// *  Function to create a single vector of observation weights from weights sorted by link ends/observation type,
-// *  the ruesulting vector is sorted according to the iteration order of the inner and outer maps in the weightsData
-// *  input
-// *  \param weightsData Weights sorted by link ends and observation type
-// *  \return Concatenated vector of weights
-// */
-//template< typename ObservationScalarType = double >
-//Eigen::Matrix< ObservationScalarType, Eigen::Dynamic, 1 > getConcatenatedWeightsVector(
-//        const typename std::map< observation_models::ObservableType, std::map<
-//        observation_models::LinkEnds, Eigen::VectorXd > >& weightsData )
-//{
-//    typedef std::map< observation_models::ObservableType, std::map< observation_models::LinkEnds, Eigen::VectorXd > >
-//            WeightsDataStructure;
-
-//    // Get total required size of weights vector
-//    int totalNumberOfObservations = 0;
-//    for( typename WeightsDataStructure::const_iterator observablesIterator =
-//         weightsData.begin( ); observablesIterator != weightsData.end( ); observablesIterator++ )
-//    {
-//        for( typename std::map< observation_models::LinkEnds, Eigen::VectorXd >::const_iterator dataIterator =
-//             observablesIterator->second.begin( ); dataIterator != observablesIterator->second.end( ); dataIterator++  )
-//        {
-//            totalNumberOfObservations += dataIterator->second.rows( );
-//        }
-//    }
-//    Eigen::Matrix< ObservationScalarType, Eigen::Dynamic, 1 > concatenatedWeights = Eigen::Matrix< ObservationScalarType, Eigen::Dynamic, 1 >::Zero( totalNumberOfObservations, 1 );
-
-//    // Iterate over all observations and concatenate the weight vectors.
-//    int currentIndex = 0;
-//    for( typename WeightsDataStructure::const_iterator observablesIterator =
-//         weightsData.begin( ); observablesIterator != weightsData.end( ); observablesIterator++ )
-//    {
-//        for( typename std::map< observation_models::LinkEnds, Eigen::VectorXd >::const_iterator dataIterator =
-//             observablesIterator->second.begin( ); dataIterator != observablesIterator->second.end( ); dataIterator++  )
-//        {
-//            concatenatedWeights.segment( currentIndex, dataIterator->second.rows( ) ) =
-//                    dataIterator->second.template cast< ObservationScalarType >( );
-//            currentIndex += dataIterator->second.rows( );
-//        }
-//    }
-
-//    return concatenatedWeights;
-//}
 
 //! Top-level class for performing orbit determination.
 /*!
@@ -219,31 +174,6 @@ public:
                         processedIntegratorSettings, propagatorSettings ),
                     propagateOnCreation );
     }
-//        parametersToEstimate_( parametersToEstimate )
-//    {
-//        std::vector< std::shared_ptr< numerical_integrators::IntegratorSettings< TimeType > > > independentIntegratorSettingsList =
-//                { integratorSettings };
-//        if( std::dynamic_pointer_cast< propagators::MultiArcPropagatorSettings< ObservationScalarType, TimeType > >( propagatorSettings ) != nullptr )
-//        {
-//            std::vector< double > arcStartTimes = estimatable_parameters::getMultiArcStateEstimationArcStartTimes(
-//                        parametersToEstimate, true );
-//            std::vector<std::shared_ptr< numerical_integrators::IntegratorSettings< TimeType > > > integratorSettingsList(
-//                        arcStartTimes.size( ), integratorSettings);
-//            independentIntegratorSettingsList = utilities::deepcopyDuplicatePointers( integratorSettingsList );
-
-//            for( unsigned int i = 0; i < independentIntegratorSettingsList.size( ); i++ )
-//            {
-//                independentIntegratorSettingsList.at( i )->initialTime_ = arcStartTimes.at( i );
-//            }
-//        }
-//        propagatorSettings =
-
-//        initializeOrbitDeterminationManager( bodies, observationSettingsList, propagators::validateDeprecatePropagatorSettings( integratorSettings, propagatorSettings ),
-//                                             propagateOnCreation );
-//    }
-
-
-
 
     OrbitDeterminationManager(
             const SystemOfBodies &bodies,
@@ -272,9 +202,7 @@ public:
 
     //! Function to retrieve map of all observation managers
     /*!
-     *  Function to retrieve map of all observation managers. A single observation manager can simulate observations and
-     *  calculate observation partials for all link ends involved in the given observable type.
-     *  \return Map of observation managers for all observable types involved in current orbit determination.
+     *  \return Map of observation managers for each observable type.
      */
     std::map< observation_models::ObservableType,
     std::shared_ptr< observation_models::ObservationManagerBase< ObservationScalarType, TimeType > > >
@@ -306,68 +234,6 @@ public:
         return observationSimulators;
     }
 
-    //    //! Function to determine the number of observations per link end.
-    //    /*!
-    //     *  Function to determine the number of observations per link end from a map of observations for each link ends.
-    //     *  The input type is directly related to the data stored for a single observable in EstimationInput::EstimationInputDataType.
-    //     *  \param dataPerLinkEnd Map of observations and times for a set of link ends.
-    //     *  \return Vector of size of number of observations in input map (in order of forward iterator over input map).
-    //     */
-    //    static std::vector< int > getNumberOfObservationsPerLinkEnd(
-    //            const SingleObservableEstimationInputType& dataPerLinkEnd )
-    //    {
-    //        // Declare output vector.
-    //        std::vector< int > numberOfObservations;
-
-    //        // Iterate over all link ends.
-    //        for( typename SingleObservableEstimationInputType::const_iterator dataIterator =
-    //             dataPerLinkEnd.begin( ); dataIterator != dataPerLinkEnd.end( ); dataIterator++  )
-    //        {
-    //            // Add number of observations for current link ends.
-    //            numberOfObservations.push_back( dataIterator->second.first.rows( ) );
-    //        }
-
-    //        return numberOfObservations;
-    //    }
-
-    //    //! Function to determine total number of observation and number of observations per observable
-    //    /*!
-    //     *  Function to determine total number of observation and number of observations per observable from the complete set
-    //     *  of measurement data.
-    //     *  \param observationsAndTimes Set of measurement data per obsevable type and link ends
-    //     *  \return Pair first: map with number of observations per observable type, second: total number of observations
-    //     *  (i.e. sum of valus of first)
-    //     */
-    //    static std::pair< std::map< observation_models::ObservableType, int >, int > getNumberOfObservationsPerObservable(
-    //            const EstimationInputType& observationsAndTimes )
-    //    {
-    //        // Initialize counters.
-    //        std::map< observation_models::ObservableType, int > numberOfObservations;
-    //        int totalNumberOfObservations = 0;
-
-    //        // Iterate over all observabel types.
-    //        for( typename EstimationInputType::const_iterator observablesIterator = observationsAndTimes.begin( );
-    //             observablesIterator != observationsAndTimes.end( ); observablesIterator++ )
-    //        {
-    //            // Initialize number of observations for current observable
-    //            numberOfObservations[ observablesIterator->first ] = 0;
-
-    //            // Iterate over all link ends.
-    //            for( typename SingleObservableEstimationInputType::const_iterator dataIterator = observablesIterator->second.begin( );
-    //                 dataIterator != observablesIterator->second.end( ); dataIterator++  )
-    //            {
-    //                // Add number of observations with given link ends.
-    //                numberOfObservations[ observablesIterator->first ] += dataIterator->second.first.size( );
-    //            }
-
-    //            // Add to total number of observations.
-    //            totalNumberOfObservations += numberOfObservations[ observablesIterator->first ];
-    //        }
-
-    //        return std::make_pair( numberOfObservations, totalNumberOfObservations );
-    //    }
-
-    //! Function to calculate the observation partials matrix and residuals
     /*!
      *  This function calculates the observation partials matrix and residuals, based on the state transition matrix,
      *  sensitivity matrix and body states resulting from the previous numerical integration iteration.
@@ -509,73 +375,10 @@ public:
             observationMatrix.block( 0, i, observationMatrix.rows( ), 1 ) = currentVector;
         }
 
-        //        for( unsigned int i = 0; i < observationLinkParameterIndices_.size( ); i++ )
-        //        {
-        //            int currentColumn = observationLinkParameterIndices_.at( i );
-        //            int startIndex = -1;
-        //            int endIndex = -1;
-        //            std::vector< double > partialMaximum;
-        //            bool isInRange = 0;
-
-        //            for( int j = 0; j < observationMatrix.rows( ); j++ )
-        //            {
-        //                if( observationMatrix( j, currentColumn ) != 0.0 )
-        //                {
-        //                   if( isInRange == 0 )
-        //                   {
-        //                       isInRange = 1;
-        //                       startIndex = j;
-        //                   }
-        //                }
-        //                else if( ( startIndex != -1 ) && isInRange && ( observationMatrix( j, currentColumn ) == 0.0 ) )
-        //                {
-        //                    isInRange = 0;
-        //                    endIndex = j;
-        //                }
-
-        //            }
-        //        }
         return normalizationTerms;
     }
 
-//    void saveResultsFromCurrentIteration(
-//            std::vector< std::shared_ptr< propagators::SimulationResults< ObservationScalarType, TimeType > > >& dynamicsHistoryPerIteration )
-//    {
-//        if( std::dynamic_pointer_cast< propagators::HybridArcVariationalEquationsSolver< ObservationScalarType, TimeType > >(  variationalEquationsSolver_) != nullptr )
-//        {
-
-//            std::shared_ptr< propagators::HybridArcVariationalEquationsSolver< ObservationScalarType, TimeType > > hybridArcSolver =
-//                    std::dynamic_pointer_cast< propagators::HybridArcVariationalEquationsSolver< ObservationScalarType, TimeType > >(  variationalEquationsSolver_);
-
-//            std::vector< std::map< TimeType, Eigen::Matrix< ObservationScalarType, Eigen::Dynamic, 1 > > > currentDynamicsSolution;
-//            std::vector< std::map< TimeType, Eigen::Matrix< ObservationScalarType, Eigen::Dynamic, 1 > > > currentDependentVariableSolution;
-
-//            currentDynamicsSolution = hybridArcSolver->getSingleArcSolver( )->getDynamicsSimulator( )->getEquationsOfMotionNumericalSolutionBase( );
-//            currentDependentVariableSolution = hybridArcSolver->getSingleArcSolver( )->getDynamicsSimulator( )->getDependentVariableNumericalSolutionBase( );
-
-//            auto multiArcDynamicsSolution =
-//                    hybridArcSolver->getMultiArcSolver( )->getDynamicsSimulatorBase( )->getEquationsOfMotionNumericalSolutionBase( );
-//            auto multiArcDependentVariableSolution =
-//                    hybridArcSolver->getMultiArcSolver( )->getDynamicsSimulatorBase( )->getDependentVariableNumericalSolutionBase( );
-//            currentDynamicsSolution.insert( currentDynamicsSolution.end( ), multiArcDynamicsSolution.begin( ), multiArcDynamicsSolution.end( ) );
-//            currentDependentVariableSolution.insert( currentDependentVariableSolution.end( ), multiArcDependentVariableSolution.begin( ), multiArcDependentVariableSolution.end( ) );
-
-//            dynamicsHistoryPerIteration.push_back( currentDynamicsSolution );
-//            dependentVariableHistoryPerIteration.push_back( currentDependentVariableSolution );
-//        }
-//        else
-//        {
-//            dynamicsHistoryPerIteration.push_back(
-//                        variationalEquationsSolver_->getDynamicsSimulatorBase( )->getEquationsOfMotionNumericalSolutionBase( ));
-//            dependentVariableHistoryPerIteration.push_back(
-//                        variationalEquationsSolver_->getDynamicsSimulatorBase( )->getDependentVariableNumericalSolutionBase( ));
-
-//        }
-//    }
-
-    std::shared_ptr< CovarianceAnalysisOutput< ObservationScalarType, TimeType > > computeCovariance(
-            const std::shared_ptr< CovarianceAnalysisInput< ObservationScalarType, TimeType > > estimationInput )
-    {
+        const std::shared_ptr<CovarianceAnalysisInput<ObservationScalarType, TimeType>> estimationInput ) {
         // Get size of parameter vector and number of observations (total and per type)
         int numberOfEstimatedParameters = parametersToEstimate_->getParameterSetSize( );
         int totalNumberOfObservations = estimationInput->getObservationCollection( )->getTotalObservableSize( );
@@ -632,13 +435,7 @@ public:
 
     //! Function to perform parameter estimation from measurement data.
     /*!
-     *  Function to perform parameter estimation, including orbit determination, i.e. body initial states, from measurement data.
-     *  All observable types and link ends per obsevable types that are included in the measurement data input must have been
-     *  provided to the constructor by the observationSettingsMap parameter.
-     *  \param estimationInput Object containing all measurement data, associated metadata, including measurement weight, and a priori
-     *  estimate for covariance matrix and parameter adjustment.
-     *  \param convergenceChecker Object used to check convergence/termination of algorithm
-     *  \return Object containing estimated parameter value and associateed data, such as residuals and observation partials.
+     *  \return Pointer to the estimation output.
      */
     std::shared_ptr< EstimationOutput< ObservationScalarType, TimeType > > estimateParameters(
             const std::shared_ptr< EstimationInput< ObservationScalarType, TimeType > > estimationInput )
@@ -862,58 +659,7 @@ public:
         currentParameterEstimate_ = newParameterEstimate;
     }
 
-    //    //! Function to convert from one representation of all measurement data to the other
-    //    /*!
-    //     *  Function to convert from one representation of all measurement data (AlternativeEstimationInputType) to the other (EstimationInputType).
-    //     *  In the former, the vector of times and vector of associated observations are stored separately.  In the latter, they are
-    //     *  stored as a map with time as key and obsevation as value.
-    //     *  \param alternativeEstimationInput Original representation of measurement data
-    //     *  \return Converted measurement data.
-    //     */
-    //    static EstimationInputType convertEstimationInput( const AlternativeEstimationInputType& alternativeEstimationInput )
-    //    {
-    //        // Declare return data structure.
-    //        EstimationInputType convertedObservationAndTimes;
-
-    //        // Iterate over all observable types.
-    //        for( typename AlternativeEstimationInputType::const_iterator inputIterator = alternativeEstimationInput.begin( );
-    //             inputIterator != alternativeEstimationInput.end( ); inputIterator++ )
-    //        {
-    //            // Declare data structure for converted measurement data at single observable type.
-    //            std::map< observation_models::LinkEnds, std::pair< ObservationVectorType, std::pair< std::vector< TimeType >, observation_models::LinkEndType > > > singleTypeObservations;
-
-    //            // Iterate over all link ends in current observable types
-    //            for( typename std::map< observation_models::LinkEnds, std::pair< std::map< TimeType, ObservationScalarType >, observation_models::LinkEndType > >::const_iterator stationIterator =
-    //                 inputIterator->second.begin( ); stationIterator != inputIterator->second.end( ); stationIterator++ )
-    //            {
-    //                // Initialize vector of observation times.
-    //                std::vector< TimeType > times;
-    //                times.resize( stationIterator->second.first.size( ) );
-
-    //                // Initialize vector of observation values.
-    //                ObservationVectorType observations = ObservationVectorType::Zero( stationIterator->second.first.size( ) );
-
-    //                // Iterate over all observations in input map, and split time and observation.
-    //                int counter = 0;
-    //                for( typename std::map< TimeType, ObservationScalarType >::const_iterator singleDataSetIterator = stationIterator->second.first.begin( );
-    //                     singleDataSetIterator != stationIterator->second.first.end( ); singleDataSetIterator++ )
-    //                {
-    //                    times[ counter ] = singleDataSetIterator->first;
-    //                    observations( counter ) = singleDataSetIterator->second;
-    //                    counter++;
-    //                }
-
-    //                // Set converted data for current link nends and observable.
-    //                singleTypeObservations[ stationIterator->first ] = std::make_pair( observations, std::make_pair( times, stationIterator->second.second ) );
-    //            }
-
-    //            // Set converted data for current observable.
-    //            convertedObservationAndTimes[ inputIterator->first ] = singleTypeObservations;
-    //        }
-    //        return convertedObservationAndTimes;
-    //    }
-
-    //! Function to retrieve the object to numerical integrate and update the variational equations and equations of motion
+    //! Get the variational equations solver
     /*!
      *  Function to retrieve the object to numerical integrate and update the variational equations and equations of motion
      *  \return Object to numerical integrate and update the variational equations and equations of motion
@@ -1053,35 +799,7 @@ protected:
         }
 
         // Set current parameter estimate from body initial states and parameter set.
-        currentParameterEstimate_ = parametersToEstimate_->template getFullParameterValues< ObservationScalarType >( );
-
-        //        std::map< int, std::shared_ptr< estimatable_parameters::EstimatableParameter< double > > > doubleParameters =
-        //                parametersToEstimate_->getDoubleParameters( );
-        //        for( std::map< int, std::shared_ptr< estimatable_parameters::EstimatableParameter< double > > >::iterator
-        //             parameterIterator = doubleParameters.begin( ); parameterIterator != doubleParameters.end( ); parameterIterator++ )
-        //        {
-        //            if( estimatable_parameters::isParameterObservationLinkProperty(
-        //                        parameterIterator->second->getParameterName( ).first ) )
-        //            {
-        //                observationLinkParameterIndices_.push_back( parameterIterator->first );
-        //            }
-        //        }
-
-        //        std::map< int, std::shared_ptr< estimatable_parameters::EstimatableParameter< Eigen::VectorXd > > > vectorParameters =
-        //                parametersToEstimate_->getVectorParameters( );
-        //        for( std::map< int, std::shared_ptr< estimatable_parameters::EstimatableParameter< Eigen::VectorXd > > >::iterator
-        //             parameterIterator = vectorParameters.begin( ); parameterIterator != vectorParameters.end( ); parameterIterator++ )
-        //        {
-        //            if( estimatable_parameters::isParameterObservationLinkProperty(
-        //                        parameterIterator->second->getParameterName( ).first ) )
-        //            {
-        //                for( int i = 0; i < parameterIterator->second->getParameterSize( ); i++ )
-        //                {
-        //                    observationLinkParameterIndices_.push_back( parameterIterator->first + i );
-        //                }
-        //            }
-        //        }
-
+        currentParameterEstimate_ = parametersToEstimate_->template getFullParameterValues<ObservationScalarType>();
     }
 
     //! Boolean to denote whether any dynamical parameters are estimated
@@ -1103,8 +821,6 @@ protected:
     //! Current values of the vector of estimated parameters
     ParameterVectorType currentParameterEstimate_;
 
-    //std::vector< int > observationLinkParameterIndices_;
-
     //! Object used to interpolate the numerically integrated result of the state transition/sensitivity matrices.
     std::shared_ptr< propagators::CombinedStateTransitionAndSensitivityMatrixInterface >
     stateTransitionAndSensitivityMatrixInterface_;
@@ -1113,11 +829,6 @@ protected:
     std::shared_ptr< propagators::DependentVariablesInterface< TimeType > > dependentVariablesInterface_;
 
 };
-
-//extern template class OrbitDeterminationManager< double, double >;
-
-
-
 }
 
 }
