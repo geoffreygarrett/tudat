@@ -1,5 +1,5 @@
-/*    Copyright (c) 2010-2019, Delft University of Technology
- *    All rigths reserved
+/*    Copyright (c) 2010-2023, Delft University of Technology
+ *    All rights reserved
  *
  *    This file is part of the Tudat. Redistribution and use in source and
  *    binary forms, with or without modification, are permitted exclusively
@@ -8,21 +8,24 @@
  *    http://tudat.tudelft.nl/LICENSE.
  */
 
+/*!
+ * \file orbitDeterminationManager.h
+ * \brief Top-level class for performing orbit determination.
+ */
+
 #ifndef TUDAT_ORBITDETERMINATIONMANAGER_H
 #define TUDAT_ORBITDETERMINATIONMANAGER_H
 
 #include <algorithm>
 
-
-
+#include "tudat/astro/observation_models/observationManager.h"
+#include "tudat/astro/orbit_determination/estimatable_parameters/initialTranslationalState.h"
+#include "tudat/astro/orbit_determination/podInputOutputTypes.h"
 #include "tudat/io/basicInputOutput.h"
 #include "tudat/math/basic/leastSquaresEstimation.h"
-#include "tudat/astro/observation_models/observationManager.h"
-#include "tudat/astro/orbit_determination/podInputOutputTypes.h"
-#include "tudat/astro/orbit_determination/estimatable_parameters/initialTranslationalState.h"
-#include "tudat/simulation/estimation_setup/variationalEquationsSolver.h"
-#include "tudat/simulation/estimation_setup/createObservationManager.h"
 #include "tudat/simulation/estimation_setup/createNumericalSimulator.h"
+#include "tudat/simulation/estimation_setup/createObservationManager.h"
+#include "tudat/simulation/estimation_setup/variationalEquationsSolver.h"
 #include "tudat/simulation/propagation_setup/dependentVariablesInterface.h"
 
 namespace tudat
